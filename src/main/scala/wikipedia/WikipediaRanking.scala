@@ -46,12 +46,26 @@ object WikipediaRanking {
     .map(lang => (lang, occurrencesOfLang(lang, rdd)))
     .sortBy(_._2)(sortIntegersReverse)
 
+
   /* Compute an inverted index of the set of articles, mapping each language
    * to the Wikipedia pages in which it occurs.
    */
-  def makeIndex(langs: List[String], rdd: RDD[WikipediaArticle]): RDD[(String, Iterable[WikipediaArticle])] = sc.parallelize(
-    langs.map(lang => (lang, rdd.filter(w => w.mentionsLanguage(lang)).collect().toIterable))
-  )
+
+  private def textContains(needle: String, haystack: String): Boolean = haystack.split(" ").contains(needle)
+
+  private def findLanguages(langs: List[String], article: WikipediaArticle) =
+    langs
+      .filter(textContains(_, article.text))
+
+  def makeIndex(langs: List[String], rdd: RDD[WikipediaArticle]): RDD[(String, Iterable[WikipediaArticle])] =
+    rdd.flatMap(article => {
+      findLanguages(langs, article)
+        .map(lang => (lang, article))
+    }).groupByKey
+//    val index: List[String, RDD[WikipediaArticle]] = langs.map()
+//      for(lang <- langs) yield (lang, rdd.filter(w => w.mentionsLanguage(lang)))
+//    val index = langs.map(lang => (lang, rdd.filter(w => w.mentionsLanguage(lang)).collect().toIterable))
+//    sc.parallelize(index)
 
   /* (2) Compute the language ranking again, but now using the inverted index. Can you notice
    *     a performance improvement?
@@ -59,9 +73,13 @@ object WikipediaRanking {
    *   Note: this operation is long-running. It can potentially run for
    *   several seconds.
    */
-  def rankLangsUsingIndex(index: RDD[(String, Iterable[WikipediaArticle])]): List[(String, Int)] = (for((lang, it) <- index)
-      yield (lang, it.count(w => w.mentionsLanguage(lang)))
-    ).collect().toList
+//  def rankLangsUsingIndex(index: RDD[(String, Iterable[WikipediaArticle])]) = {
+  def rankLangsUsingIndex(index: RDD[(String, Iterable[WikipediaArticle])]): List[(String, Int)] =
+    index.mapValues(it => it.size).sortBy(_._2).collect().toList
+
+//    (for((lang, it) <- index)
+//      yield (lang, it.count(w => w.mentionsLanguage(lang)))
+//    ).collect().toList
 
   /* (3) Use `reduceByKey` so that the computation of the index and the ranking are combined.
    *     Can you notice an improvement in performance compared to measuring *both* the computation of the index
